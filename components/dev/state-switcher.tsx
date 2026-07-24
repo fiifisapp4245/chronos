@@ -16,19 +16,13 @@ import { PERSONAS } from "@/lib/api/personas"
 import { useScenario } from "@/lib/api/scenario-context"
 
 /**
- * Shown automatically in local dev. On a deployed build (Vercel etc.) it's
- * hidden unless NEXT_PUBLIC_SHOW_DEV_TOOLS=true is set for that environment
- * — this is a prototype for stakeholder review, so the switcher needs to be
- * reachable there too, not just on `next dev`.
+ * Always rendered, dev or deployed — this is a prototype for teammates to
+ * review every state, not a real product, so there is no "real user" a
+ * hidden switcher would need to be kept from. Making it always-on avoids
+ * needing any hosting-side environment variable to see it on a deployed
+ * build.
  */
-const DEV_TOOLS_ENABLED =
-  process.env.NODE_ENV === "development" || process.env.NEXT_PUBLIC_SHOW_DEV_TOOLS === "true"
-
 export function StateSwitcher() {
-  if (!DEV_TOOLS_ENABLED) {
-    return null
-  }
-
   return <StateSwitcherPanel />
 }
 
