@@ -10,9 +10,11 @@ import {
   getScenarioSeed,
   makePunch,
   resolveDay,
+  SESSION_IDENTITY,
   type ScenarioKey,
   type ScenarioSeed,
 } from "./mock-data"
+import { DEFAULT_PERSONA, getPersonaOverrides, type PersonaKey } from "./personas"
 import type { DayStatus, PunchResult, SessionContext, Timesheet } from "./types"
 
 const LATENCY_MS = 400
@@ -25,6 +27,10 @@ let activeScenario: ScenarioKey = "fresh_morning"
 let seed: ScenarioSeed = getScenarioSeed(activeScenario, new Date())
 let todayKey = toDateKey(new Date())
 
+/** Independent of the attendance scenario — persona drives session/access
+ *  (nav gating), scenario drives the logged-in user's own day data. */
+let activePersona: PersonaKey = DEFAULT_PERSONA
+
 /** Dev-only: swap the active mock scenario. Not part of the real API surface. */
 export function setScenario(key: ScenarioKey): void {
   activeScenario = key
@@ -36,10 +42,20 @@ export function getActiveScenario(): ScenarioKey {
   return activeScenario
 }
 
+/** Dev-only: swap the active persona. Not part of the real API surface. */
+export function setPersona(key: PersonaKey): void {
+  activePersona = key
+}
+
+export function getActivePersona(): PersonaKey {
+  return activePersona
+}
+
 /** GET /api/me */
 export async function getSessionContext(): Promise<SessionContext> {
   await sleep(LATENCY_MS)
-  return seed.session
+  const overrides = getPersonaOverrides(activePersona)
+  return { ...SESSION_IDENTITY, ...overrides }
 }
 
 /** GET /v1/user/status?date= */

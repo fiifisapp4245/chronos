@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Clock, MapPin, Shield, Table2, Users } from "lucide-react"
+import { Clock, MapPin, Shield, SlidersHorizontal, Table2, Users } from "lucide-react"
 
 import {
   Sidebar,
@@ -24,7 +24,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Separator } from "@/components/ui/separator"
 import { DarkModeToggle } from "@/components/shell/dark-mode-toggle"
 import { APP_NAME } from "@/lib/constants"
-import { getSessionContext } from "@/lib/api/attendance"
+import { useSessionContext } from "@/lib/api/use-session"
+import { formatLocationLabel } from "@/lib/format"
 import type { SessionContext } from "@/lib/api/types"
 
 const NAV_ITEMS = [
@@ -32,15 +33,25 @@ const NAV_ITEMS = [
   { href: "/timesheet", label: "Timesheet", icon: Table2 },
 ] as const
 
-const FUTURE_NAV_ITEMS = [
-  { label: "Team", icon: Users },
-  { label: "Admin", icon: Shield },
+const ADMIN_NAV_ITEMS = [
+  { href: "/records", label: "Records", icon: Table2 },
+  { href: "/adjustments", label: "Adjustments", icon: SlidersHorizontal },
+  { href: "/devices", label: "Devices", icon: Shield },
 ] as const
 
-function formatLocationLabel(locationId: string): string {
-  const parts = locationId.split(/[_-]/).filter((part) => part.toLowerCase() !== "loc")
-  if (parts.length === 0) return locationId
-  return parts.map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ")
+function hasTeamAccess(session: SessionContext): boolean {
+  return session.direct_report_count > 0 || session.hod_department !== null || session.dotted_report_count > 0
+}
+
+/** A person can be several things at once — nav and header show the union. */
+function derivePersonaLabels(session: SessionContext): string[] {
+  const labels: string[] = []
+  if (session.is_hr_admin) labels.push("HR Admin")
+  if (session.direct_report_count > 0) labels.push("Line Manager")
+  if (session.hod_department) labels.push(`${session.hod_department} HoD`)
+  if (session.dotted_report_count > 0) labels.push("Dotted-line viewer")
+  if (labels.length === 0) labels.push("Employee")
+  return labels
 }
 
 function HeaderSkeleton() {
@@ -54,17 +65,10 @@ function HeaderSkeleton() {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const [session, setSession] = React.useState<SessionContext | null>(null)
+  const { session } = useSessionContext()
 
-  React.useEffect(() => {
-    let cancelled = false
-    getSessionContext().then((data) => {
-      if (!cancelled) setSession(data)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const showTeam = session ? hasTeamAccess(session) : false
+  const showAdmin = session ? session.is_hr_admin : false
 
   return (
     <SidebarProvider>
@@ -96,29 +100,54 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
-          <SidebarGroup>
-            <SidebarGroupLabel>Organization</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {FUTURE_NAV_ITEMS.map((item) => (
-                  <SidebarMenuItem key={item.label}>
-                    <SidebarMenuButton
-                      aria-disabled="true"
-                      className="cursor-not-allowed text-muted-foreground/70"
-                      tooltip={`${item.label} — coming in a later pass`}
-                    >
-                      <item.icon />
-                      <span>{item.label}</span>
+
+          {showTeam && (
+            <SidebarGroup>
+              <SidebarGroupLabel>Organization</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={pathname?.startsWith("/team")} tooltip="Team">
+                      <Link href="/team">
+                        <Users />
+                        <span>Team</span>
+                      </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
+
+          {showAdmin && (
+            <SidebarGroup>
+              <SidebarGroupLabel>Admin</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {ADMIN_NAV_ITEMS.map((item) => (
+                    <SidebarMenuItem key={item.href}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={pathname?.startsWith(item.href)}
+                        tooltip={item.label}
+                      >
+                        <Link href={item.href}>
+                          <item.icon />
+                          <span>{item.label}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
         </SidebarContent>
-        <SidebarFooter className="px-3 py-3 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
-          Team and Admin are coming in a later pass.
-        </SidebarFooter>
+        {!showTeam && !showAdmin && (
+          <SidebarFooter className="px-3 py-3 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
+            Team and Admin appear here for personas with reports or HR admin access.
+          </SidebarFooter>
+        )}
       </Sidebar>
       <SidebarInset className="min-w-0">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-6">
@@ -128,10 +157,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {session ? (
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold">{session.business_name}</p>
-                <p className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                <p className="flex flex-wrap items-center gap-1.5 truncate text-xs text-muted-foreground">
                   <span>{session.display_name}</span>
                   <span aria-hidden="true">·</span>
-                  <span className="capitalize">{session.role}</span>
+                  <span>{derivePersonaLabels(session).join(" · ")}</span>
                   <span aria-hidden="true">·</span>
                   <MapPin className="size-3" aria-hidden="true" />
                   <span>{formatLocationLabel(session.location_id)}</span>

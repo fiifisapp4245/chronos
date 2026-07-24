@@ -7,11 +7,11 @@ import type {
   DayStatusValue,
   Punch,
   PunchDirection,
-  SessionContext,
 } from "./types"
 
 /** Internal only — no endpoint exposes this; it just drives non_working_day
- *  derivation and the sparse-month scenario below. */
+ *  derivation, the sparse-month scenario below, and org-data.ts's per-person
+ *  generation. */
 interface WorkingWeekConfig {
   working_weekdays: number[]
 }
@@ -75,25 +75,26 @@ export const SCENARIOS: ScenarioDescriptor[] = [
   },
 ]
 
-export const SESSION_CONTEXT: SessionContext = {
+/** Fixed identity shared by every persona — persona switching only changes
+ *  the access-control fields layered on top in personas.ts. */
+export const SESSION_IDENTITY = {
   user_id: "usr_2001",
   display_name: "Jordan Blake",
   business_name: "Solari Logistics",
   app_id: "trovesuite-attendance-web",
   location_id: "loc_accra_hq",
-  role: "employee",
-}
+} as const
 
 /** Mon–Fri by default (ISO weekday numbers). */
 const WORKING_WEEK: WorkingWeekConfig = {
   working_weekdays: [1, 2, 3, 4, 5],
 }
 
-function isWorkingWeekday(date: Date): boolean {
+export function isWorkingWeekday(date: Date): boolean {
   return WORKING_WEEK.working_weekdays.includes(getISODay(date))
 }
 
-const MANAGER_NAME = "Amara Osei (Manager)"
+const HR_ADMIN_NAME = "Amara Osei (HR Admin)"
 
 function punchId(dateKey: string, index: number): string {
   return `punch_${dateKey}_${index}`
@@ -124,19 +125,43 @@ interface TimeEntry {
   timestamp: string
 }
 
+/**
+ * Effective (post-adjustment) time entries used for total/first-in/last-out
+ * math. Both punches and adjustments are append-only, so "effective" means:
+ * drop any punch superseded by a still-live adjustment, drop any adjustment
+ * itself superseded by a later adjustment, and layer the rest on top.
+ */
 function effectiveEntries(punches: Punch[], adjustments: Adjustment[]): TimeEntry[] {
-  const overriddenIds = new Set(
-    adjustments.filter((a) => a.references_punch_id).map((a) => a.references_punch_id),
+  const supersededAdjustmentIds = new Set(
+    adjustments.filter((a) => a.supersedes_adjustment_id).map((a) => a.supersedes_adjustment_id),
+  )
+  const liveAdjustments = adjustments.filter((a) => !supersededAdjustmentIds.has(a.id))
+  const overriddenPunchIds = new Set(
+    liveAdjustments.filter((a) => a.references_punch_id).map((a) => a.references_punch_id),
   )
   const entries: TimeEntry[] = punches
-    .filter((p) => !overriddenIds.has(p.id))
+    .filter((p) => !overriddenPunchIds.has(p.id))
     .map((p) => ({ direction: p.direction, timestamp: p.timestamp }))
 
-  for (const adjustment of adjustments) {
-    entries.push({ direction: adjustment.adjusted_direction, timestamp: adjustment.adjusted_timestamp })
+  for (const adjustment of liveAdjustments) {
+    entries.push(...adjustment.entries)
   }
 
   return entries.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+}
+
+/** Punch ids superseded by a still-live "supersede" adjustment — used by
+ *  PunchList to mark the original "Superseded by adjustment", never hidden. */
+export function supersededPunchIds(adjustments: Adjustment[]): Set<string> {
+  const supersededAdjustmentIds = new Set(
+    adjustments.filter((a) => a.supersedes_adjustment_id).map((a) => a.supersedes_adjustment_id),
+  )
+  const liveAdjustments = adjustments.filter((a) => !supersededAdjustmentIds.has(a.id))
+  return new Set(
+    liveAdjustments
+      .filter((a) => a.type === "supersede" && a.references_punch_id)
+      .map((a) => a.references_punch_id as string),
+  )
 }
 
 function sumPairedMinutes(entries: TimeEntry[]): number {
@@ -212,7 +237,7 @@ function buildAutoClosedDay(date: Date): DayStatus {
   ])
 }
 
-/** A day whose clock-in punch was corrected by a manager after the fact. */
+/** A day whose clock-in punch was corrected by HR Admin after the fact. */
 function buildCorrectedPunchDay(date: Date): DayStatus {
   const dateKey = toDateKey(date)
   const dayStart = startOfDay(date)
@@ -225,18 +250,19 @@ function buildCorrectedPunchDay(date: Date): DayStatus {
 
   const adjustment: Adjustment = {
     id: adjustmentId(dateKey, 1),
+    type: "supersede",
     references_punch_id: inPunch.id,
-    adjusted_direction: "in",
-    adjusted_timestamp: correctedIn.toISOString(),
+    supersedes_adjustment_id: null,
+    entries: [{ direction: "in", timestamp: correctedIn.toISOString() }],
     reason: "Badge reader was offline at entry; corrected to scheduled arrival time.",
-    adjusted_by: MANAGER_NAME,
+    adjusted_by: HR_ADMIN_NAME,
     created_at: new Date(dayStart.getTime() + 24 * 60 * 60_000 + 10 * 60 * 60_000).toISOString(),
   }
 
   return buildDay(date, [inPunch, outPunch], [adjustment])
 }
 
-/** A day where the clock-out was never punched, so a manager added it. */
+/** A day where the clock-out was never punched, so HR Admin added it. */
 function buildMissingPunchAdjustmentDay(date: Date): DayStatus {
   const dateKey = toDateKey(date)
   const dayStart = startOfDay(date)
@@ -247,11 +273,12 @@ function buildMissingPunchAdjustmentDay(date: Date): DayStatus {
 
   const adjustment: Adjustment = {
     id: adjustmentId(dateKey, 1),
+    type: "add_single",
     references_punch_id: null,
-    adjusted_direction: "out",
-    adjusted_timestamp: addedOut.toISOString(),
-    reason: "Employee forgot to clock out; added based on manager confirmation.",
-    adjusted_by: MANAGER_NAME,
+    supersedes_adjustment_id: null,
+    entries: [{ direction: "out", timestamp: addedOut.toISOString() }],
+    reason: "Employee forgot to clock out; confirmed with line manager.",
+    adjusted_by: HR_ADMIN_NAME,
     created_at: new Date(dayStart.getTime() + 24 * 60 * 60_000 + 9 * 60 * 60_000).toISOString(),
   }
 
@@ -269,7 +296,7 @@ function buildNoRecordDay(date: Date): DayStatus {
  * a "no_record" example) for a non_working_day that masks it. Stepping by
  * working days keeps these examples stable regardless of today's weekday.
  */
-function nthPriorWorkingDay(from: Date, n: number): Date {
+export function nthPriorWorkingDay(from: Date, n: number): Date {
   let cursor = from
   let remaining = n
   while (remaining > 0) {
@@ -311,7 +338,6 @@ function baselineOverrides(today: Date): Map<string, DayStatus> {
 }
 
 export interface ScenarioSeed {
-  session: SessionContext
   today: DayStatus
   overrides: Map<string, DayStatus>
   alwaysRejectPunch: boolean
@@ -405,7 +431,6 @@ export function getScenarioSeed(key: ScenarioKey, today: Date): ScenarioSeed {
   }
 
   return {
-    session: SESSION_CONTEXT,
     today: buildTodayForScenario(key, today),
     overrides,
     alwaysRejectPunch: key === "off_network",

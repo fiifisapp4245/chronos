@@ -56,3 +56,10 @@ export function formatPeriodLabel(from: string, to: string): string {
   }
   return `${format(fromDate, "d MMM yyyy")} – ${format(toDate, "d MMM yyyy")}`
 }
+
+/** "Accra Hq" from a "loc_accra_hq"-style location id. */
+export function formatLocationLabel(locationId: string): string {
+  const parts = locationId.split(/[_-]/).filter((part) => part.toLowerCase() !== "loc")
+  if (parts.length === 0) return locationId
+  return parts.map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ")
+}

@@ -1,7 +1,11 @@
+import { PenLine } from "lucide-react"
+
+import { Button } from "@/components/ui/button"
 import {
   Sheet,
   SheetContent,
   SheetDescription,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
@@ -11,18 +15,31 @@ import { StatusChip } from "@/components/attendance/status-chip"
 import { formatClockTime, formatDayLabel, formatDuration } from "@/lib/format"
 import type { DayStatus } from "@/lib/api/types"
 
+export interface DayDetailAdjustAction {
+  onRequest: () => void
+  disabled?: boolean
+  disabledReason?: string
+}
+
 interface DayDetailSheetProps {
   day: DayStatus | null
   onOpenChange: (open: boolean) => void
+  /** Whose day this is, when viewing someone other than yourself (Records,
+   *  Team). Omitted for an employee's own Timesheet. */
+  personName?: string
+  /** Present only for HR Admin contexts — employees and Team viewers never
+   *  get this affordance (Team is read-only in V1). */
+  adjustAction?: DayDetailAdjustAction
 }
 
-export function DayDetailSheet({ day, onOpenChange }: DayDetailSheetProps) {
+export function DayDetailSheet({ day, onOpenChange, personName, adjustAction }: DayDetailSheetProps) {
   return (
     <Sheet open={day !== null} onOpenChange={onOpenChange}>
-      <SheetContent className="overflow-y-auto">
+      <SheetContent className="flex flex-col overflow-y-auto">
         {day && (
           <>
             <SheetHeader>
+              {personName && <p className="text-xs text-muted-foreground">{personName}</p>}
               <SheetTitle>{formatDayLabel(day.date)}</SheetTitle>
               <SheetDescription asChild>
                 <span>
@@ -30,7 +47,7 @@ export function DayDetailSheet({ day, onOpenChange }: DayDetailSheetProps) {
                 </span>
               </SheetDescription>
             </SheetHeader>
-            <div className="flex flex-col gap-6 px-6 pb-6">
+            <div className="flex flex-1 flex-col gap-6 px-6 pb-6">
               <div className="grid grid-cols-3 gap-3 text-sm">
                 <div>
                   <p className="text-muted-foreground">First in</p>
@@ -52,7 +69,11 @@ export function DayDetailSheet({ day, onOpenChange }: DayDetailSheetProps) {
 
               <div>
                 <h3 className="mb-2 text-sm font-medium">Punches</h3>
-                <PunchList punches={day.punches} emptyLabel="No punches recorded." />
+                <PunchList
+                  punches={day.punches}
+                  adjustments={day.adjustments}
+                  emptyLabel="No punches recorded."
+                />
               </div>
 
               {day.adjustments.length > 0 && (
@@ -62,6 +83,22 @@ export function DayDetailSheet({ day, onOpenChange }: DayDetailSheetProps) {
                 </div>
               )}
             </div>
+            {adjustAction && (
+              <SheetFooter className="border-t border-border">
+                <Button
+                  variant="outline"
+                  disabled={adjustAction.disabled}
+                  onClick={adjustAction.onRequest}
+                  title={adjustAction.disabled ? adjustAction.disabledReason : undefined}
+                >
+                  <PenLine />
+                  Add adjustment
+                </Button>
+                {adjustAction.disabled && adjustAction.disabledReason && (
+                  <p className="text-xs text-muted-foreground">{adjustAction.disabledReason}</p>
+                )}
+              </SheetFooter>
+            )}
           </>
         )}
       </SheetContent>
