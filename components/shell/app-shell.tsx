@@ -19,6 +19,7 @@ import {
   SidebarMenuItem,
   SidebarProvider,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Separator } from "@/components/ui/separator"
@@ -54,6 +55,34 @@ function derivePersonaLabels(session: SessionContext): string[] {
   return labels
 }
 
+interface NavLinkProps {
+  href: string
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+  isActive: boolean
+}
+
+/** Closes the mobile off-canvas sidebar on navigation — it renders as a
+ *  Radix Sheet that otherwise stays open over the destination page, since
+ *  nothing else ever calls setOpenMobile(false). */
+function NavLink({ href, label, icon: Icon, isActive }: NavLinkProps) {
+  const { isMobile, setOpenMobile } = useSidebar()
+
+  return (
+    <SidebarMenuButton
+      asChild
+      isActive={isActive}
+      tooltip={label}
+      onClick={() => isMobile && setOpenMobile(false)}
+    >
+      <Link href={href}>
+        <Icon />
+        <span>{label}</span>
+      </Link>
+    </SidebarMenuButton>
+  )
+}
+
 function HeaderSkeleton() {
   return (
     <div className="flex flex-col gap-1.5">
@@ -85,16 +114,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <SidebarMenu>
                 {NAV_ITEMS.map((item) => (
                   <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={pathname?.startsWith(item.href)}
-                      tooltip={item.label}
-                    >
-                      <Link href={item.href}>
-                        <item.icon />
-                        <span>{item.label}</span>
-                      </Link>
-                    </SidebarMenuButton>
+                    <NavLink
+                      href={item.href}
+                      label={item.label}
+                      icon={item.icon}
+                      isActive={Boolean(pathname?.startsWith(item.href))}
+                    />
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>
@@ -107,12 +132,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <SidebarGroupContent>
                 <SidebarMenu>
                   <SidebarMenuItem>
-                    <SidebarMenuButton asChild isActive={pathname?.startsWith("/team")} tooltip="Team">
-                      <Link href="/team">
-                        <Users />
-                        <span>Team</span>
-                      </Link>
-                    </SidebarMenuButton>
+                    <NavLink
+                      href="/team"
+                      label="Team"
+                      icon={Users}
+                      isActive={Boolean(pathname?.startsWith("/team"))}
+                    />
                   </SidebarMenuItem>
                 </SidebarMenu>
               </SidebarGroupContent>
@@ -126,16 +151,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <SidebarMenu>
                   {ADMIN_NAV_ITEMS.map((item) => (
                     <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={pathname?.startsWith(item.href)}
-                        tooltip={item.label}
-                      >
-                        <Link href={item.href}>
-                          <item.icon />
-                          <span>{item.label}</span>
-                        </Link>
-                      </SidebarMenuButton>
+                      <NavLink
+                        href={item.href}
+                        label={item.label}
+                        icon={item.icon}
+                        isActive={Boolean(pathname?.startsWith(item.href))}
+                      />
                     </SidebarMenuItem>
                   ))}
                 </SidebarMenu>

@@ -187,6 +187,18 @@ export function resolvePersonDay(personId: string, date: Date): DayStatus {
   const inTime = new Date(dayStart.getTime() + (8 * 60 + wobble) * 60_000)
   const outTime = new Date(dayStart.getTime() + (17 * 60 + wobble) * 60_000)
 
+  // For today specifically, reflect the real time of day instead of always
+  // showing a finished pair — Team's roll call needs some people to still be
+  // "clocked in" and some who haven't started yet, not everyone already out.
+  if (dateKey === toDateKey(today)) {
+    if (today.getTime() < inTime.getTime()) {
+      return buildDay(date, [], createdForDay)
+    }
+    if (today.getTime() < outTime.getTime()) {
+      return buildDay(date, [makePunch(idPrefix, 1, "in", inTime)], createdForDay)
+    }
+  }
+
   return buildDay(
     date,
     [makePunch(idPrefix, 1, "in", inTime), makePunch(idPrefix, 2, "out", outTime)],
